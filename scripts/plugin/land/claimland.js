@@ -5,7 +5,6 @@
  * DEVELOPED BY: Gemini AI for AdmudCraft
  * TOTAL FEATURES: Claim, Manage, Trust, Shop, Inbox, Protection
  * NOTIFICATION: Chat Box Achievement Style (No Title Clash)
- * UI: Paperdoll Chat Support Auto-Refresh
  * ============================================================
  */
 
@@ -201,8 +200,8 @@ function menuConfirmClaim(player) {
             generalPerms: {
                 publicEnter: false,
                 publicInteract: false,
-                explosions: true, 
-                monsters: true,  
+                explosions: true, // true = dilindungi dari ledakan
+                monsters: true,   // true = dilindungi dari monster
                 pvp: false,
                 trustClan: false
             },
@@ -407,7 +406,7 @@ function menuTrustHub(player, land) {
 }
 
 // ==========================================
-// [6] LAND SHOP & PRIVATE MESSAGES (PAPERDOLL UI)
+// [6] LAND SHOP & PRIVATE MESSAGES (CHAT NOTIF)
 // ==========================================
 
 function menuShopList(player) {
@@ -460,9 +459,6 @@ function handlePurchase(player, land) {
     player.sendMessage("§a[Market] Lahan berhasil dibeli!");
 }
 
-/**
- * UI Chat Pembeli -> Penjual (Dengan Title trigger JSON UI Paperdoll)
- */
 function openChatInterface(player, land) {
     const id = `${land.id}_${player.name}`;
     let db = fetchInboxMessages();
@@ -473,81 +469,60 @@ function openChatInterface(player, land) {
     }
 
     const chats = db[id].chats.map(c => `§b${c.sender}: §f${c.text}`).join("\n");
-    const form = new ModalFormData()
-        .title("§l§eKIRIM PESAN") // Memicu UI Paperdoll dari server_form.json
-        .textField(`§aMenghubungi: §e${land.owner}\n§fLahan: §d${land.name}\n\n§eRiwayat Chat:\n§7${chats || "Belum ada pesan"}\n\n§fBalas Pesan:`, "Ketik pesan...");
+    const form = new ModalFormData().title("Chat: " + land.owner)
+        .textField(`§eRiwayat:\n§7${chats || "Kosong"}\n\n§fBalas Pesan:`, "Halo...");
 
     form.show(player).then(res => {
-        if (res.canceled) return menuShopList(player);
-        if (!res.formValues[0]) return openChatInterface(player, land); // Auto-refresh jika kosong
+        if (res.canceled || !res.formValues[0]) return;
         
         let currentDB = fetchInboxMessages();
         currentDB[id].chats.push({ sender: player.name, text: res.formValues[0], time: Date.now() });
         currentDB[id].unread += 1;
         commitInboxMessages(currentDB);
 
-        // Notifikasi ke owner
+        // --- NOTIFIKASI KE OWNER (CHAT BOX STYLE) ---
         const owner = world.getAllPlayers().find(p => p.name === land.owner);
         if (owner) {
             sendNotifAchievement(owner, "Message from Custommer", `Lahan: ${land.name}`);
         }
 
-        player.sendMessage("§aPesan Terkirim!");
-        player.playSound("random.pop");
-        openChatInterface(player, land); // Auto-Refresh UI
+        player.sendMessage("§aTerkirim!");
+        openChatInterface(player, land);
     });
 }
 
 function menuInboxCenter(player) {
     const db = fetchInboxMessages();
     const myInboxes = Object.keys(db).filter(k => db[k].owner === player.name);
-    
-    const form = new ActionFormData().title("§lINBOX MESSAGES");
+    const form = new ActionFormData().title("§lINBOX");
 
-    if (myInboxes.length === 0) {
-        form.body("Belum ada calon pembeli yang mengirim pesan.");
-        form.button("Kembali");
-    } else {
-        myInboxes.forEach(k => form.button(`§l${db[k].buyer}\n§rLand: ${db[k].landName} §c[${db[k].unread}]`));
-    }
+    if (myInboxes.length === 0) form.button("Kosong");
+    else myInboxes.forEach(k => form.button(`§l${db[k].buyer}\n§rLand: ${db[k].landName} §c[${db[k].unread}]`));
 
     form.show(player).then(res => {
         if (res.canceled || myInboxes.length === 0) return openClaimMenu(player);
         const key = myInboxes[res.selection];
-        openReplyInterface(player, key);
-    });
-}
-
-/**
- * UI Chat Penjual -> Pembeli (Dengan Title trigger JSON UI Paperdoll)
- */
-function openReplyInterface(player, key) {
-    let cur = fetchInboxMessages();
-    cur[key].unread = 0; 
-    commitInboxMessages(cur);
-
-    const logs = cur[key].chats.map(c => `§b${c.sender}: §f${c.text}`).join("\n");
-    const f = new ModalFormData()
-        .title("§l§eBALAS PESAN") // Memicu UI Paperdoll dari server_form.json
-        .textField(`§aMembalas: §e${cur[key].buyer}\n§fLahan: §d${cur[key].landName}\n\n§eRiwayat:\n§7${logs || "Belum ada pesan"}\n\n§fKirim Balasan:`, "Ketik balasan...");
-
-    f.show(player).then(r => {
-        if (r.canceled) return menuInboxCenter(player);
-        if (!r.formValues[0]) return openReplyInterface(player, key); // Auto-refresh jika kosong
         
-        let final = fetchInboxMessages();
-        final[key].chats.push({ sender: player.name, text: r.formValues[0], time: Date.now() });
-        commitInboxMessages(final);
+        let cur = fetchInboxMessages();
+        cur[key].unread = 0; commitInboxMessages(cur);
 
-        // Notifikasi ke pembeli
-        const buyer = world.getAllPlayers().find(p => p.name === final[key].buyer);
-        if (buyer) {
-            sendNotifAchievement(buyer, "Reply by Owner", `of ${final[key].landName} land`);
-        }
-        
-        player.sendMessage("§aPesan Terkirim.");
-        player.playSound("random.pop");
-        openReplyInterface(player, key); // Auto-Refresh UI
+        const logs = cur[key].chats.map(c => `§b${c.sender}: §f${c.text}`).join("\n");
+        const f = new ModalFormData().title("Inbox: " + cur[key].buyer)
+            .textField(`§eRiwayat:\n§7${logs}\n\n§fBalas:`, "...");
+
+        f.show(player).then(r => {
+            if (r.canceled || !r.formValues[0]) return;
+            let final = fetchInboxMessages();
+            final[key].chats.push({ sender: player.name, text: r.formValues[0], time: Date.now() });
+            commitInboxMessages(final);
+
+            // --- NOTIFIKASI KE PEMBELI (REPLY STYLE) ---
+            const buyer = world.getAllPlayers().find(p => p.name === final[key].buyer);
+            if (buyer) {
+                sendNotifAchievement(buyer, "§rReply by Owner", `of ${final[key].landName} land`);
+            }
+            player.sendMessage("§aPesan Terkirim.");
+        });
     });
 }
 
